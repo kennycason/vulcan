@@ -1,8 +1,6 @@
 Vulcan - Purebasic
 ==================
 
-This game represents the very 
-
 Vulcan I is a sidescrolling space shooter written in <a target="new" href="http://www.purebasic.com">Purebasic</a>. This was my first major attempt at programming a game and is far from perfect. Vulcan I features 7 full length levels, each ending with a boss battle, many of which are redundant. Each level is unique and has its own array of enemies and terrains. Equip various powerups to prepare for the final showdown to save the universe.
 
 <table>
