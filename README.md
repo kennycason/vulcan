@@ -19,6 +19,35 @@ Vulcan I is a sidescrolling space shooter written in <a target="new" href="http:
 
 
 
+## Python Port
+
+A pygame port of the original is included at `vulcan.py`.
+
+### Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python vulcan.py
+```
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| `WASD` | Move ship |
+| `J` | Shoot (hold to charge when charge weapon selected) |
+| `K` | Cycle weapon |
+| `L` | Speed down |
+| `Space` | Pause / unpause |
+| `Escape` | Quit |
+
+> **Note:** Missing sprite/sound assets fall back to colored placeholders so the game runs even with an incomplete asset set.
+> Hi-score is saved to `vulcan.json` in the project root.
+
+---
+
 Below is the old README
 
 ```
