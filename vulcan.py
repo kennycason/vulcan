@@ -439,7 +439,7 @@ class Game:
         self.playerspeedy = 3
         self.playerwidth  = get_w(1)
         self.playerheight = get_h(1)
-        self.bulletspeedx = 18
+        self.bulletspeedx = 10
         self.bulletspeedy = 10
         self.deaddelay    = 0    # no flicker on first spawn; post-death uses 100
         self.dead_flag    = 0
@@ -1135,8 +1135,9 @@ class Game:
     def _collect_item(self, img):
         if img == 25:   self.score += 500
         elif img == 26:
-            self.score += 50; self.weaponselect = min(15, self.weaponselect + 1)
+            self.score += 50
             if self.weaponselect < 15:
+                self.weaponselect  += 1
                 self.weaponstrength = (self.weaponselect-10)/2+1
                 self.weaponspeed    = (self.weaponselect-10)//3+16
         elif img == 27: self.score+=150; self.beam1=1
