@@ -3,13 +3,14 @@
 Vulcan I - pygame port of the PureBasic original by Kenny Cason
 
 Controls:
-  WASD      - move
-  J         - shoot / hold for charge weapon
-  K         - cycle weapon
-  L         - speed down
-  Tab       - skip to next level/boss (debug)
-  Space     - pause
-  Escape    - quit
+  WASD / D-pad  - move
+  J / A button  - shoot / hold for charge weapon
+  K / X button  - cycle weapon
+  L             - speed down
+  Tab / Select  - skip to next level/boss (debug)
+  Space / Start - pause
+  P / F12       - screenshot
+  Escape        - quit
 """
 import pygame
 import sys
@@ -29,6 +30,116 @@ BASE    = os.path.dirname(os.path.abspath(__file__))
 SPRITES = os.path.join(BASE, "sprites")
 SOUND   = os.path.join(BASE, "sound")
 SAVE    = os.path.join(BASE, "vulcan.json")
+
+# SNES Nintendo Switch controller button indices (pygame joystick)
+# D-pad is exposed as buttons (not a hat) on this controller
+JOY_A      = 0
+JOY_B      = 1
+JOY_X      = 2
+JOY_Y      = 3
+JOY_SELECT = 4
+JOY_START  = 6
+JOY_L      = 9
+JOY_R      = 10
+JOY_UP     = 11
+JOY_DOWN   = 12
+JOY_LEFT   = 13
+JOY_RIGHT  = 14
+
+
+class Controller:
+    """Unified keyboard + joystick input. Call update(events) once per frame."""
+
+    UP        = 'up'
+    DOWN      = 'down'
+    LEFT      = 'left'
+    RIGHT     = 'right'
+    FIRE      = 'fire'
+    CONFIRM   = 'confirm'
+    PAUSE     = 'pause'
+    CYCLE     = 'cycle'
+    SKIP      = 'skip'
+    SPEED_DOWN= 'speed_down'
+    SCREENSHOT= 'screenshot'
+    QUIT      = 'quit'
+
+    # keyboard → action for KEYDOWN/KEYUP events
+    _KEY_MAP = {
+        pygame.K_SPACE:  PAUSE,
+        pygame.K_k:      CYCLE,
+        pygame.K_TAB:    SKIP,
+        pygame.K_l:      SPEED_DOWN,
+        pygame.K_p:      SCREENSHOT,
+        pygame.K_F12:    SCREENSHOT,
+        pygame.K_ESCAPE: QUIT,
+        pygame.K_j:      FIRE,
+        pygame.K_RETURN: CONFIRM,
+    }
+
+    # joystick button → action for JOYBUTTONDOWN/JOYBUTTONUP events
+    _JOY_MAP = {
+        JOY_START:  PAUSE,
+        JOY_X:      CYCLE,
+        JOY_SELECT: SKIP,
+        JOY_A:      FIRE,
+        JOY_A:      CONFIRM,   # A also confirms menus
+    }
+
+    def __init__(self, joy=None):
+        self.joy = joy
+        self._pressed:  set = set()
+        self._released: set = set()
+        self.quit_now   = False
+
+    def update(self, events):
+        """Process event list for this frame. Must be called before any other query."""
+        self._pressed.clear()
+        self._released.clear()
+        self.quit_now = False
+        for ev in events:
+            if ev.type == pygame.QUIT:
+                self.quit_now = True
+                self._pressed.add(self.QUIT)
+            elif ev.type == pygame.KEYDOWN:
+                a = self._KEY_MAP.get(ev.key)
+                if a:
+                    self._pressed.add(a)
+            elif ev.type == pygame.KEYUP:
+                a = self._KEY_MAP.get(ev.key)
+                if a:
+                    self._released.add(a)
+            elif ev.type == pygame.JOYBUTTONDOWN:
+                a = self._JOY_MAP.get(ev.button)
+                if a:
+                    self._pressed.add(a)
+            elif ev.type == pygame.JOYBUTTONUP:
+                a = self._JOY_MAP.get(ev.button)
+                if a:
+                    self._released.add(a)
+
+    def pressed(self, action) -> bool:
+        return action in self._pressed
+
+    def released(self, action) -> bool:
+        return action in self._released
+
+    def _jb(self, btn) -> bool:
+        return self.joy is not None and bool(self.joy.get_button(btn))
+
+    def held(self, action) -> bool:
+        """Current continuous state — keyboard OR joystick."""
+        keys = pygame.key.get_pressed()
+        if action == self.UP:
+            return keys[pygame.K_w] or keys[pygame.K_UP] or self._jb(JOY_UP)
+        if action == self.DOWN:
+            return keys[pygame.K_s] or keys[pygame.K_DOWN] or self._jb(JOY_DOWN)
+        if action == self.LEFT:
+            return keys[pygame.K_a] or keys[pygame.K_LEFT] or self._jb(JOY_LEFT)
+        if action == self.RIGHT:
+            return keys[pygame.K_d] or keys[pygame.K_RIGHT] or self._jb(JOY_RIGHT)
+        if action == self.FIRE:
+            return keys[pygame.K_j] or self._jb(JOY_A)
+        return False
 
 # ── Sprite / sound registries ──────────────────────────────────────────────
 spr: dict[int, pygame.Surface] = {}
@@ -279,6 +390,18 @@ class Game:
 
         self.mode       = 1
         self.bonuslevel = 0
+
+        # Joystick
+        pygame.joystick.init()
+        self.joy = None
+        if pygame.joystick.get_count() > 0:
+            self.joy = pygame.joystick.Joystick(0)
+            self.joy.init()
+            print(f"[vulcan] Joystick: {self.joy.get_name()}")
+        else:
+            print("[vulcan] No joystick detected")
+        self.ctrl = Controller(self.joy)
+
         self._reset_game()
 
     # ── Reset / NewGame ────────────────────────────────────────────────────
@@ -436,26 +559,23 @@ class Game:
     def _title_screen(self):
         px, py = 390.0, 290.0
         while True:
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self.running = False
-                    return
-                if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                    self.running = False
-                    return
+            events = pygame.event.get()
+            self.ctrl.update(events)
 
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_w] or keys[pygame.K_UP]:    py -= 2
-            if keys[pygame.K_s] or keys[pygame.K_DOWN]:  py += 2
-            if keys[pygame.K_a] or keys[pygame.K_LEFT]:  px -= 2
-            if keys[pygame.K_d] or keys[pygame.K_RIGHT]: px += 2
+            if self.ctrl.quit_now or self.ctrl.pressed(Controller.QUIT):
+                self.running = False
+                return
+
+            if self.ctrl.held(Controller.UP):    py -= 2
+            if self.ctrl.held(Controller.DOWN):  py += 2
+            if self.ctrl.held(Controller.LEFT):  px -= 2
+            if self.ctrl.held(Controller.RIGHT): px += 2
 
             cw = get_w(510); ch = get_h(510)
             px = max(0, min(px, SCREEN_W - cw))
             py = max(0, min(py, SCREEN_H - ch))
 
-            fire = keys[pygame.K_j] or keys[pygame.K_RETURN]
-            if fire:
+            if self.ctrl.held(Controller.FIRE) or self.ctrl.pressed(Controller.CONFIRM):
                 if 346 <= px <= 430 and 245 < py < 275:
                     self.mode = 1; return
                 elif 320 <= px <= 470 and 278 < py < 302:
@@ -685,7 +805,7 @@ class Game:
             self.backgroundspeedx=-20; self.backgroundspeedy=0
             self.levelspeed=0; self.itemfrequency=0
             self._add_boss(315,318,20,1,0,55,10000,13,1,205,1,90,90,1,1,5,
-                           420, 230)
+                           420, 230 + int(self.levely))
 
         elif lvl == 7 and boss == 0:
             self.backgroundmap=1002; self.backgroundspeedx=-4; self.backgroundspeedy=0
@@ -702,11 +822,12 @@ class Game:
             self._delete_enemies()
             self.backgroundspeedx=-4; self.backgroundspeedy=0
             self.levelspeed=0; self.itemfrequency=0
+            ly = int(self.levely)
             self._add_boss(313,314,3,0,0,50,25000,12,1,205,1,-3,0,2,1,5,
-                           550, 330)
+                           550, 330 + ly)
             for k in range(0, 121, 40):
                 self._add_boss(279,281,3,0,0,15,2502,0,1,205,1,-3,0,2,1,5,
-                               400-k, 335)
+                               400-k, 335 + ly)
 
         elif lvl == 8 and boss == 0:
             self.backgroundmap=1002; self.backgroundspeedx=-4; self.backgroundspeedy=0
@@ -724,7 +845,7 @@ class Game:
             self.backgroundspeedx=-4; self.backgroundspeedy=0
             self.levelspeed=0; self.itemfrequency=0
             self._add_boss(313,314,3,0,0,15,15000,10,1,205,1,-5,-5,2,1,5,
-                           255, 270)
+                           255, 270 + int(self.levely))
         else:
             self._beat_game()
             return
@@ -1315,21 +1436,23 @@ class Game:
             if ex in self.explosions: self.explosions.remove(ex)
 
     # ── Update: player movement & draw ────────────────────────────────────
-    def _update_player(self, keys):
+    def _update_player(self):
         self.adjusty = 0
         pimg = self.shield  # default = normal ship variant matching shield
 
-        if keys[pygame.K_a]:
+        c = self.ctrl
+
+        if c.held(Controller.LEFT):
             self.playerx -= abs(self.levelspeed) + self.playerspeedx
             self.playerx = max(0, self.playerx)
 
-        if keys[pygame.K_d]:
+        if c.held(Controller.RIGHT):
             pimg = self.shield + 39
             self.playerx += self.playerspeedx
             if self.playerx > SCREEN_W - self.playerwidth:
                 self.playerx = float(SCREEN_W - self.playerwidth)
 
-        if keys[pygame.K_w]:
+        if c.held(Controller.UP):
             pimg = self.shield + 6
             if self.playery < 250 and self.levely < 0:
                 self.levely  += self.playerspeedy
@@ -1339,7 +1462,7 @@ class Game:
                 self.playery -= self.playerspeedy
         if self.playery < 0: self.playery = 0.0
 
-        if keys[pygame.K_s]:
+        if c.held(Controller.DOWN):
             pimg = self.shield + 3
             if self.playery > 250 and -self.levely < self.levelheight - GAME_H:
                 self.levely  -= self.playerspeedy
@@ -1389,45 +1512,44 @@ class Game:
         while self.running:
             self.clock.tick(FPS)
 
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self._save_hi(); self.running = False; return
+            events = pygame.event.get()
+            self.ctrl.update(events)
 
-                if ev.type == pygame.KEYDOWN:
-                    if ev.key == pygame.K_ESCAPE:
-                        self._save_hi(); self.running = False; return
+            if self.ctrl.quit_now:
+                self._save_hi(); self.running = False; return
 
-                    if ev.key == pygame.K_SPACE:
-                        self.paused = not self.paused
+            if self.ctrl.pressed(Controller.QUIT):
+                self._save_hi(); self.running = False; return
 
-                    if ev.key == pygame.K_F12 or ev.key == pygame.K_p:
-                        import datetime
-                        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                        fname = f"screenshot_{ts}.png"
-                        pygame.image.save(self.screen, fname)
-                        print(f"[vulcan] screenshot saved: {fname}")
+            if self.ctrl.pressed(Controller.SCREENSHOT):
+                import datetime
+                os.makedirs(os.path.join(BASE, "screenshots"), exist_ok=True)
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                fname = os.path.join(BASE, "screenshots", f"screenshot_{ts}.png")
+                pygame.image.save(self.screen, fname)
+                print(f"[vulcan] screenshot saved: {fname}")
 
-                    if not self.paused:
-                        if ev.key == pygame.K_k and self.charge == 0:
-                            self._weapon_cycle()
+            if self.ctrl.pressed(Controller.PAUSE):
+                self.paused = not self.paused
 
-                        if ev.key == pygame.K_l:
-                            if self.selectdelay <= 0:
-                                self.playerspeedx = max(3, self.playerspeedx - 1)
-                                self.playerspeedy = max(3, self.playerspeedy - 1)
-                                self.selectdelay  = 15
+            if not self.paused:
+                if self.ctrl.pressed(Controller.CYCLE) and self.charge == 0:
+                    self._weapon_cycle()
 
-                        # Debug: advance one level/boss stage
-                        if ev.key == pygame.K_TAB and self.skipdelay <= 0:
-                            self.lvlup  = 1
-                            self.levelx = -100000000.0
-                            self.skipdelay = 90
-                            self._delete_enemies()
+                if self.ctrl.pressed(Controller.SPEED_DOWN) and self.selectdelay <= 0:
+                    self.playerspeedx = max(3, self.playerspeedx - 1)
+                    self.playerspeedy = max(3, self.playerspeedy - 1)
+                    self.selectdelay  = 15
 
-                if ev.type == pygame.KEYUP:
-                    if ev.key == pygame.K_j and self.charge == 1:
-                        self._release_charge()
-                        charge_held = False
+                if self.ctrl.pressed(Controller.SKIP) and self.skipdelay <= 0:
+                    self.lvlup  = 1
+                    self.levelx = -100000000.0
+                    self.skipdelay = 90
+                    self._delete_enemies()
+
+                if self.ctrl.released(Controller.FIRE) and self.charge == 1:
+                    self._release_charge()
+                    charge_held = False
 
             # ── Paused ──────────────────────────────────────────────────
             if self.paused:
@@ -1437,11 +1559,9 @@ class Game:
                 pygame.display.flip()
                 continue
 
-            keys = pygame.key.get_pressed()
-
             # Shoot / charge
             if self.deaddelay == 0 and self.bulletdelay == 0:
-                if keys[pygame.K_j]:
+                if self.ctrl.held(Controller.FIRE):
                     if self.beamselect == 4:
                         if not charge_held:
                             self._shoot()
@@ -1467,7 +1587,7 @@ class Game:
             self._update_bullets()
             self._update_ebullets()
             self._update_items()
-            self._update_player(keys)
+            self._update_player()
             self._update_explosions()
 
             # Level image overlay
@@ -1498,14 +1618,16 @@ class Game:
                 # Wait for space or escape
                 waiting = True
                 while waiting:
-                    for ev in pygame.event.get():
-                        if ev.type == pygame.QUIT:
-                            self._save_hi(); self.running = False; return
-                        if ev.type == pygame.KEYDOWN:
-                            if ev.key == pygame.K_ESCAPE:
-                                self._save_hi(); self.running = False; return
-                            if ev.key == pygame.K_SPACE:
-                                waiting = False
+                    evs = pygame.event.get()
+                    self.ctrl.update(evs)
+                    if self.ctrl.quit_now:
+                        self._save_hi(); self.running = False; return
+                    if self.ctrl.pressed(Controller.QUIT):
+                        self._save_hi(); self.running = False; return
+                    if (self.ctrl.pressed(Controller.PAUSE) or
+                            self.ctrl.pressed(Controller.FIRE) or
+                            self.ctrl.pressed(Controller.CONFIRM)):
+                        waiting = False
                 self.gameover = False
                 self._reset_game()
                 self._title_screen()
