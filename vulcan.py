@@ -351,9 +351,9 @@ def load_all_assets():
     load_sfx(8, "bullethit.wav")
     load_ogg(30, "level_1.ogg")
 
-    # Balance: SFX at 25%, music at full
+    # Balance: music at full, SFX at ~12% (roughly half as loud as the BGM in practice)
     for num, sound in sfx.items():
-        sound.set_volume(1.0 if num == 30 else 0.25)
+        sound.set_volume(1.0 if num == 30 else 0.12)
 
 
 # ── Save / load hi-score ───────────────────────────────────────────────────
